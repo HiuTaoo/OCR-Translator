@@ -304,14 +304,56 @@ class OCRTranslator {
     }
 
     showResult(original, translated, left, top, width, height) {
+            // Tìm thẻ <img> chứa vùng OCR
+            const allImages = Array.from(document.querySelectorAll('img'));
+            let targetImg = null;
+            for (const img of allImages) {
+                const rect = img.getBoundingClientRect();
+                if (
+                    left >= rect.left &&
+                    left + width <= rect.right &&
+                    top >= rect.top &&
+                    top + height <= rect.bottom
+                ) {
+                    targetImg = rect;
+                    break;
+                }
+            }
+
+            // Nếu không tìm thấy ảnh, dùng toàn màn hình làm fallback
+            const imgRect = targetImg || { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+
         this.removeResultOverlay();
-        
+
+        const offset = 10;
+        const boxWidth = Math.max(300, width);
+        const boxHeight = 220;
+        const screenWidth = window.innerWidth;
+        const screenHeight = window.innerHeight;
+
+        // Căn popup theo vị trí so với ảnh
+        const imageCenter = (imgRect.left + imgRect.right) / 2;
+        const textCenter = left + width / 2;
+
+        let boxLeft;
+        if (textCenter < imageCenter) {
+            // text ở nửa trái ảnh => popup ngoài rìa trái ảnh
+            boxLeft = Math.max(imgRect.left - boxWidth - offset, offset);
+        } else {
+            // text ở nửa phải ảnh => popup ngoài rìa phải ảnh
+            boxLeft = Math.min(imgRect.right + offset, screenWidth - boxWidth - offset);
+        }
+
+        // Đảm bảo không tràn màn hình theo chiều dọc
+        const boxTop = Math.max(offset, Math.min(top, screenHeight - boxHeight - offset));
+
+
         this.resultOverlay = document.createElement('div');
         this.resultOverlay.id = 'ocr-translator-result';
         this.resultOverlay.style.cssText = `
             position: fixed;
-            left: ${left}px;
-            top: ${Math.max(10, top - 200)}px;
+            left: ${boxLeft}px;
+            top: ${boxTop}px;
             max-width: ${Math.max(300, width)}px;
             background: white;
             border: 2px solid #007cba;
