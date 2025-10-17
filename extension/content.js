@@ -319,80 +319,107 @@ class OCRTranslator {
         }
     }
 
-showResult(original, translated, left, top, width, height, imgW, imgH, id = Date.now() + Math.random()) {
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const boxWidth = 360;
-    const boxHeight = 220;
-    const margin = 8;
+    showResult(original, translated, left, top, width, height, imgW, imgH, id = Date.now() + Math.random()) {
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const boxWidth = 360;
+        const boxHeight = 220;
+        const margin = 8;
 
-    // Quy đổi từ tọa độ ảnh → viewport thật
-    const scaleX = vw / imgW;
-    const scaleY = vh / imgH;
+        const scaleX = vw / imgW;
+        const scaleY = vh / imgH;
 
-    const leftCss   = left   * scaleX;
-    const topCss    = top    * scaleY;
-    const widthCss  = width  * scaleX;
-    const heightCss = height * scaleY;
+        const leftCss   = left   * scaleX;
+        const topCss    = top    * scaleY;
+        const widthCss  = width  * scaleX;
+        const heightCss = height * scaleY;
 
-    // Xác định vùng text nằm nửa trái hay nửa phải màn hình
-    const isLeftSide = (leftCss + widthCss / 2) > vw / 2;
+        // Kiểm tra popup nên nằm bên trái hay phải vùng giữa
+        const isLeftSide = (leftCss + widthCss / 2) > vw / 2;
 
-    // Popup luôn dính sát mép trái hoặc phải trình duyệt
-    const boxLeft = isLeftSide ? margin : (vw - boxWidth - margin);
-    const boxTop = Math.min(Math.max(topCss, margin), vh - boxHeight - margin);
+        // Lấy vị trí cuộn trang hiện tại
+        const scrollX = window.scrollX;
+        const scrollY = window.scrollY;
 
-    // Tạo popup hiển thị kết quả
-    const overlay = document.createElement('div');
-    overlay.id = `ocr-translator-result-${id}`;
-    overlay.style.cssText = `
-        position: fixed;
-        left: ${boxLeft}px;
-        top: ${boxTop}px;
-        width: ${boxWidth}px;
-        background: white;
-        border: 2px solid #007cba;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-        z-index: 1000000;
-        font-family: Arial, sans-serif;
-        font-size: 14px;
-        max-height: 300px;
-        overflow-y: auto;
-    `;
-    overlay.innerHTML = `
-        <div style="padding:8px 12px;border-bottom:1px solid #ddd;background:#f5f5f5;
-                    display:flex;justify-content:space-between;align-items:center;">
-            <strong>Translation</strong>
-            <button class="ocr-close-btn" style="background:#ff4444;color:#fff;border:none;
-                    border-radius:4px;padding:2px 8px;cursor:pointer;">×</button>
-        </div>
-        <div style="padding:12px;">
-            <div style="margin-bottom:12px;">
-                <strong>Original:</strong>
-                <div style="background:#f9f9f9;padding:8px;border-radius:4px;margin-top:4px;white-space:pre-wrap;">${original}</div>
+        // Tính vị trí popup trong toàn trang (document)
+        const boxLeft = (isLeftSide ? margin : (vw - boxWidth - margin)) + scrollX;
+        const boxTop = Math.min(Math.max(topCss, margin), vh - boxHeight - margin) + scrollY;
+
+        const overlay = document.createElement('div');
+        overlay.id = `ocr-translator-result-${id}`;
+        overlay.style.cssText = `
+            position: absolute;  /* đổi từ fixed sang absolute để cuộn theo trang */
+            left: ${boxLeft}px;
+            top: ${boxTop}px;
+            width: ${boxWidth}px;
+            background: rgba(255,255,255,0.9);
+            color: #111;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            border: 1px solid rgba(0,0,0,0.2);
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            z-index: 1000000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            backdrop-filter: blur(4px);
+        `;
+
+        overlay.innerHTML = `
+            <div style="
+                display:flex;
+                align-items:center;
+                justify-content:space-between;
+                padding:6px 10px;
+                border-bottom:1px solid rgba(0,0,0,0.15);
+                background:rgba(0,0,0,0.05);
+                border-radius:8px 8px 0 0;
+            ">
+                <button class="ocr-close-btn" style="
+                    background:#ff4444;
+                    color:#fff;
+                    border:none;
+                    border-radius:4px;
+                    padding:2px 8px;
+                    cursor:pointer;
+                    font-weight:bold;
+                    font-size:14px;
+                    line-height:1;
+                    text-shadow:none;
+                ">×</button>
             </div>
-            <div>
-                <strong style="color:#007cba;">Vietnamese:</strong>
-                <div style="background:#e3f2fd;padding:8px;border-radius:4px;margin-top:4px;white-space:pre-wrap;">${translated}</div>
+            <div style="padding:8px;">
+                <div style="margin-bottom:6px;">
+                    <div style="
+                        background:rgba(240,240,240,0.9);
+                        color:#111;
+                        padding:8px;
+                        border-radius:4px;
+                        white-space:pre-wrap;
+                        text-shadow:0 1px 1px rgba(0,0,0,0.3);
+                    ">${original}</div>
+                </div>
+                <div>
+                    <div style="
+                        background:rgba(200,230,255,0.9);
+                        color:#000;
+                        padding:8px;
+                        border-radius:4px;
+                        white-space:pre-wrap;
+                        text-shadow:0 1px 1px rgba(255,255,255,0.2);
+                    ">${translated}</div>
+                </div>
             </div>
-            <div style="margin-top:12px;text-align:center;">
-                <button class="ocr-copy-btn" style="background:#007cba;color:#fff;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;margin-right:8px;">Copy Translation</button>
-                <button class="ocr-copy-all-btn" style="background:#28a745;color:#fff;border:none;border-radius:4px;padding:6px 12px;cursor:pointer;">Copy Both</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
+        `;
 
-    // Gắn sự kiện
-    overlay.querySelector('.ocr-close-btn').onclick = () => overlay.remove();
-    overlay.querySelector('.ocr-copy-btn').onclick = () => this.copyToClipboard(translated);
-    overlay.querySelector('.ocr-copy-all-btn').onclick = () =>
-        this.copyToClipboard(`Original: ${original}\n\nTranslated: ${translated}`);
+        document.body.appendChild(overlay);
 
-    // Tự động đóng sau 30s
-    setTimeout(() => overlay.remove(), 30000);
-}
+        overlay.querySelector('.ocr-close-btn').onclick = () => overlay.remove();
+
+        // Xóa popup sau 30 giây
+        setTimeout(() => overlay.remove(), 30000);
+    }
 
     showError(message) {
         this.showInstruction(`Error: ${message}`, 'error');
