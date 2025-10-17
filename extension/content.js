@@ -1,0 +1,387 @@
+// Content script for OCR Translator Extension
+class OCRTranslator {
+    constructor() {
+        this.isSelecting = false;
+        this.isProcessing = false;
+        this.startX = 0;
+        this.startY = 0;
+        this.endX = 0;
+        this.endY = 0;
+        this.overlay = null;
+        this.selectionBox = null;
+        this.resultOverlay = null;
+
+        // bind methods once
+        this.onMouseDown = this.onMouseDown.bind(this);
+        this.onMouseMove = this.onMouseMove.bind(this);
+        this.onMouseUp = this.onMouseUp.bind(this);
+
+        this.init();
+    }
+
+    init() {
+        // Listen for messages from popup/background
+        chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+            if (request.action === 'startSelection') {
+                this.startSelection();
+                sendResponse({success: true});
+            } else if (request.action === 'stopSelection') {
+                this.stopSelection();
+                sendResponse({success: true});
+            }
+        });
+
+        // Listen for keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+                e.preventDefault();
+                this.startSelection();
+            }
+            if (e.key === 'Escape') {
+                this.stopSelection();
+            }
+        });
+    }
+
+    startSelection() {
+        if (this.isSelecting || this.isProcessing) return;
+        
+        this.isSelecting = true;
+        this.createOverlay();
+
+        // Dùng hàm đã bind sẵn
+        document.addEventListener('mousedown', this.onMouseDown);
+        document.addEventListener('mousemove', this.onMouseMove);
+        document.addEventListener('mouseup', this.onMouseUp);
+
+        document.body.style.cursor = 'crosshair';
+        this.showInstruction('Click and drag to select an area');
+    }
+
+
+    stopSelection() {
+        if (!this.isSelecting) return;
+        this.isSelecting = false;
+
+        // remove event listeners correctly
+        document.removeEventListener('mousedown', this.onMouseDown);
+        document.removeEventListener('mousemove', this.onMouseMove);
+        document.removeEventListener('mouseup', this.onMouseUp);
+
+        document.body.style.cursor = '';
+        this.removeOverlay();
+        this.hideInstruction();
+}
+
+
+    createOverlay() {
+        if (this.overlay) return;
+        
+        this.overlay = document.createElement('div');
+        this.overlay.id = 'ocr-translator-overlay';
+        this.overlay.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 999999;
+            pointer-events: none;
+        `;
+        
+        this.selectionBox = document.createElement('div');
+        this.selectionBox.id = 'ocr-translator-selection';
+        this.selectionBox.style.cssText = `
+            position: absolute;
+            border: 2px dashed #ff4444;
+            background: rgba(255, 68, 68, 0.1);
+            display: none;
+        `;
+        
+        this.overlay.appendChild(this.selectionBox);
+        document.body.appendChild(this.overlay);
+    }
+
+    removeOverlay() {
+        if (this.overlay) {
+            this.overlay.remove();
+            this.overlay = null;
+            this.selectionBox = null;
+        }
+    }
+
+    onMouseDown(e) {
+        if (!this.isSelecting) return;
+        
+        e.preventDefault();
+        this.startX = e.clientX;
+        this.startY = e.clientY;
+        
+        if (this.selectionBox) {
+            this.selectionBox.style.display = 'block';
+            this.selectionBox.style.left = this.startX + 'px';
+            this.selectionBox.style.top = this.startY + 'px';
+            this.selectionBox.style.width = '0px';
+            this.selectionBox.style.height = '0px';
+        }
+    }
+
+    onMouseMove(e) {
+        if (!this.isSelecting || !this.selectionBox) return;
+        
+        this.endX = e.clientX;
+        this.endY = e.clientY;
+        
+        const left = Math.min(this.startX, this.endX);
+        const top = Math.min(this.startY, this.endY);
+        const width = Math.abs(this.endX - this.startX);
+        const height = Math.abs(this.endY - this.startY);
+        
+        this.selectionBox.style.left = left + 'px';
+        this.selectionBox.style.top = top + 'px';
+        this.selectionBox.style.width = width + 'px';
+        this.selectionBox.style.height = height + 'px';
+    }
+
+    onMouseUp(e) {
+        if (!this.isSelecting || this.isProcessing) return;
+        
+        this.endX = e.clientX;
+        this.endY = e.clientY;
+        
+        const width = Math.abs(this.endX - this.startX);
+        const height = Math.abs(this.endY - this.startY);
+        
+        // Minimum selection size
+        if (width < 10 || height < 10) {
+            this.stopSelection();
+            return;
+        }
+        
+        // Capture the selected area
+        this.captureSelection();
+    }
+
+    async captureSelection() {
+        if (this.isCapturing) return;
+
+        if (this.isProcessing) return;
+            this.isProcessing = true;
+
+        this.isCapturing = true;
+        setTimeout(() => { this.isCapturing = false; }, 1000);
+
+        try {
+            this.showInstruction('Processing image...');
+            
+            // Calculate selection bounds relative to viewport
+            const left = Math.min(this.startX, this.endX);
+            const top = Math.min(this.startY, this.endY);
+            const width = Math.abs(this.endX - this.startX);
+            const height = Math.abs(this.endY - this.startY);
+            
+            // Capture screenshot using Chrome API
+            const canvas = await this.captureScreenshot(left, top, width, height);
+            
+            // Convert to blob
+            const blob = await new Promise(resolve => {
+                canvas.toBlob(resolve, 'image/png');
+            });
+            
+            // Send to backend
+            const result = await this.sendToBackend(blob);
+            
+            if (result.success) {
+                this.showResult(result.original, result.translated, left, top, width, height);
+            } else {
+                this.showError(result.message || 'Failed to process image');
+            }
+            
+        } catch (error) {
+            console.error('Capture error:', error);
+            this.showError('Error capturing image: ' + error.message);
+        } finally {
+            this.stopSelection();
+            this.isProcessing = false;
+        }
+    }
+
+    async captureScreenshot(left, top, width, height) {
+        return new Promise((resolve, reject) => {
+            // Send message to background script to capture screenshot
+            chrome.runtime.sendMessage({
+                action: 'captureScreenshot',
+                area: { left, top, width, height }
+            }, (response) => {
+                if (response.error) {
+                    reject(new Error(response.error));
+                    return;
+                }
+                
+                // Create canvas from dataURL
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    
+                    // Draw the cropped area
+                    const scale = window.devicePixelRatio || 1;
+                    ctx.drawImage(
+                        img,
+                        left * scale, top * scale,
+                        width * scale, height * scale,
+                        0, 0, width, height
+                    );
+
+                    resolve(canvas);
+                };
+                img.onerror = () => reject(new Error('Failed to load screenshot'));
+                img.src = response.dataUrl;
+            });
+        });
+    }
+
+    async sendToBackend(blob) {
+        const formData = new FormData();
+        formData.append('file', blob, 'screenshot.png');
+        
+        try {
+            const response = await fetch('http://127.0.0.1:8000/ocr-translate', {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            return await response.json();
+        } catch (error) {
+            console.error('Backend error:', error);
+            return {
+                success: false,
+                message: 'Backend connection failed: ' + error.message
+            };
+        }
+    }
+
+    showResult(original, translated, left, top, width, height) {
+        this.removeResultOverlay();
+        
+        this.resultOverlay = document.createElement('div');
+        this.resultOverlay.id = 'ocr-translator-result';
+        this.resultOverlay.style.cssText = `
+            position: fixed;
+            left: ${left}px;
+            top: ${Math.max(10, top - 200)}px;
+            max-width: ${Math.max(300, width)}px;
+            background: white;
+            border: 2px solid #007cba;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 1000000;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+        `;
+        
+        this.resultOverlay.innerHTML = `
+            <div style="padding: 12px; border-bottom: 1px solid #ddd; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center;">
+                <strong>Translation Result</strong>
+                <button id="ocr-close-btn" style="background: #ff4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer;">×</button>
+            </div>
+            <div style="padding: 12px;">
+                <div style="margin-bottom: 12px;">
+                    <strong style="color: #333;">Original:</strong>
+                    <div style="background: #f9f9f9; padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap;">${original}</div>
+                </div>
+                <div>
+                    <strong style="color: #007cba;">Vietnamese:</strong>
+                    <div style="background: #e3f2fd; padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap;">${translated}</div>
+                </div>
+                <div style="margin-top: 12px; text-align: center;">
+                    <button id="ocr-copy-btn" style="background: #007cba; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; margin-right: 8px;">Copy Translation</button>
+                    <button id="ocr-copy-all-btn" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer;">Copy Both</button>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(this.resultOverlay);
+        
+        // Add event listeners for buttons
+        document.getElementById('ocr-close-btn').onclick = () => this.removeResultOverlay();
+        document.getElementById('ocr-copy-btn').onclick = () => this.copyToClipboard(translated);
+        document.getElementById('ocr-copy-all-btn').onclick = () => this.copyToClipboard(`Original: ${original}\n\nTranslated: ${translated}`);
+        
+        // Auto close after 30 seconds
+        setTimeout(() => this.removeResultOverlay(), 30000);
+    }
+
+    showError(message) {
+        this.showInstruction(`Error: ${message}`, 'error');
+        setTimeout(() => this.hideInstruction(), 5000);
+    }
+
+    showInstruction(text, type = 'info') {
+        this.hideInstruction();
+        
+        const instruction = document.createElement('div');
+        instruction.id = 'ocr-translator-instruction';
+        instruction.style.cssText = `
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: ${type === 'error' ? '#ff4444' : '#007cba'};
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 1000001;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        `;
+        instruction.textContent = text;
+        
+        document.body.appendChild(instruction);
+    }
+
+    hideInstruction() {
+        const instruction = document.getElementById('ocr-translator-instruction');
+        if (instruction) {
+            instruction.remove();
+        }
+    }
+
+    removeResultOverlay() {
+        if (this.resultOverlay) {
+            this.resultOverlay.remove();
+            this.resultOverlay = null;
+        }
+    }
+
+    async copyToClipboard(text) {
+        try {
+            await navigator.clipboard.writeText(text);
+            this.showInstruction('Copied to clipboard!');
+            setTimeout(() => this.hideInstruction(), 2000);
+        } catch (error) {
+            console.error('Copy failed:', error);
+            this.showInstruction('Copy failed', 'error');
+            setTimeout(() => this.hideInstruction(), 3000);
+        }
+    }
+}
+
+// Initialize when page loads
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+        new OCRTranslator();
+    });
+} else {
+    new OCRTranslator();
+}

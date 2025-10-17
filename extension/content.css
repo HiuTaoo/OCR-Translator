@@ -1,0 +1,92 @@
+/* OCR Translator Extension - Content Script Styles */
+
+#ocr-translator-overlay {
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+#ocr-translator-selection {
+    cursor: crosshair;
+    box-sizing: border-box;
+}
+
+#ocr-translator-result {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    line-height: 1.4;
+    color: #333;
+    user-select: text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+}
+
+#ocr-translator-result button {
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+#ocr-translator-result button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+#ocr-translator-result button:active {
+    transform: translateY(0);
+}
+
+#ocr-translator-instruction {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    animation: slideInDown 0.3s ease-out;
+    user-select: none;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+}
+
+@keyframes slideInDown {
+    from {
+        transform: translateX(-50%) translateY(-20px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Ensure overlay doesn't interfere with page interactions */
+#ocr-translator-overlay {
+    pointer-events: none;
+}
+
+#ocr-translator-overlay.selecting {
+    pointer-events: all;
+}
+
+/* Style for text areas in result overlay */
+#ocr-translator-result .text-content {
+    word-wrap: break-word;
+    word-break: break-word;
+    hyphens: auto;
+}
+
+/* Scrollbar styling for result overlay */
+#ocr-translator-result::-webkit-scrollbar {
+    width: 6px;
+}
+
+#ocr-translator-result::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+#ocr-translator-result::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+#ocr-translator-result::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}

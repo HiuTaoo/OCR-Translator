@@ -1,0 +1,23 @@
+# Core ML/AI
+torch
+torchvision
+transformers
+sentencepiece
+
+# OCR
+paddlepaddle-gpu
+paddleocr
+
+# Image processing
+opencv-python
+Pillow
+
+# Web API
+fastapi
+uvicorn
+python-multipart
+aiofiles
+
+# Utils
+numpy
+scikit-learn

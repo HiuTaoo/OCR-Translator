@@ -1,0 +1,35 @@
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.sqlite3
+
+# === Virtual environment ===
+venv/
+env/
+.venv/
+
+# === Models and data ===
+models/
+cache/
+logs/
+debug_images/
+
+# === System files ===
+.DS_Store
+Thumbs.db
+
+# === IDE / Editor ===
+.vscode/
+.idea/
+
+# === Output / temp ===
+*.tmp
+*.bak
+*.swp
+
+# === Others ===
+# Nếu bạn có file cấu hình cá nhân, thêm vào đây
+config.py
