@@ -33,35 +33,35 @@ chrome.action.onClicked.addListener((tab) => {
 
 async function startSelection() {
     try {
-        const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-        
-        if (!tab) {
-            console.error('No active tab found');
-            return;
-        }
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab) return;
 
-        // Inject content script if not already present
-        try {
+        // Kiểm tra nếu content.js đã inject
+        const [{ result } = {}] = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: () => !!window.__OCR_TRANSLATOR_LOADED__,
+        });
+
+        if (!result) {
             await chrome.scripting.executeScript({
-                target: {tabId: tab.id},
-                files: ['content.js']
+                target: { tabId: tab.id },
+                files: ['content.js'],
             });
-        } catch (error) {
-            // Content script might already be injected
-            console.log('Content script injection skipped:', error.message);
+        } else {
+            console.log('OCRTranslator already present, skip reinjection');
         }
 
-        // Send message to content script
-        chrome.tabs.sendMessage(tab.id, {action: 'startSelection'}, (response) => {
+        chrome.tabs.sendMessage(tab.id, { action: 'startSelection' }, (response) => {
             if (chrome.runtime.lastError) {
-                console.error('Error sending message to content script:', chrome.runtime.lastError.message);
+                console.error('Error sending message:', chrome.runtime.lastError.message);
             }
         });
-        
+
     } catch (error) {
         console.error('Error starting selection:', error);
     }
 }
+
 
 async function captureScreenshot(area, sendResponse) {
     try {

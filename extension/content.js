@@ -1,7 +1,7 @@
 // Content script for OCR Translator Extension
 if (window.__OCR_TRANSLATOR_LOADED__) {
-    console.log("OCRTranslator already loaded, skipping duplicate injection");
-    throw new Error("OCRTranslator already loaded");
+    console.log("OCRTranslator already loaded");
+    throw new Error("Duplicate load");
 }
 window.__OCR_TRANSLATOR_LOADED__ = true;
 
