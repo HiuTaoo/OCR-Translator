@@ -241,7 +241,7 @@ import numpy as np
 from sklearn.cluster import DBSCAN
 import numpy as np
 
-def group_text_blocks(text_blocks: List[Dict], max_distance: int = 50) -> List[Dict]:
+def group_text_blocks(text_blocks: List[Dict], max_distance: int = 120) -> List[Dict]:
     """
     Gom nhóm các text_blocks thành cụm (bubble) dựa trên vị trí gần nhau.
     Mỗi cụm trả về gồm:
