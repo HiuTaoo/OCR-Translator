@@ -238,41 +238,68 @@ async def shutdown_event():
 from sklearn.cluster import DBSCAN
 import numpy as np
 
-def group_text_blocks(text_blocks: List[Dict], max_distance: int = 50) -> List[str]:
-    """Group text blocks into bubbles (clusters) and sort inside each bubble"""
+from sklearn.cluster import DBSCAN
+import numpy as np
+
+def group_text_blocks(text_blocks: List[Dict], max_distance: int = 50) -> List[Dict]:
+    """
+    Gom nhóm các text_blocks thành cụm (bubble) dựa trên vị trí gần nhau.
+    Mỗi cụm trả về gồm:
+      - 'text': đoạn hội thoại ghép lại
+      - 'bbox': vùng bao quanh toàn bộ chữ trong cụm
+    """
     if not text_blocks:
         return []
 
-    # Tính tâm của mỗi box
+    # Tâm của từng box để gom cụm
     centers = np.array([
         [b['bbox']['x'] + b['bbox']['width'] / 2,
          b['bbox']['y'] + b['bbox']['height'] / 2]
         for b in text_blocks
     ])
 
-    # Gom nhóm bằng DBSCAN
+    # Gom nhóm theo khoảng cách (DBSCAN)
     clustering = DBSCAN(eps=max_distance, min_samples=1).fit(centers)
     labels = clustering.labels_
 
-    paragraphs = []
+    grouped = []
     for cluster_id in set(labels):
         cluster_blocks = [b for b, l in zip(text_blocks, labels) if l == cluster_id]
+        if not cluster_blocks:
+            continue
 
-        # Heuristic: nếu nhiều box cao hơn rộng → vertical
-        vertical_count = sum(1 for b in cluster_blocks if b['bbox']['height'] > b['bbox']['width'] * 2)
+        # Phân biệt cụm dọc hoặc ngang
+        vertical_count = sum(
+            1 for b in cluster_blocks if b['bbox']['height'] > b['bbox']['width'] * 2
+        )
         is_vertical = vertical_count > len(cluster_blocks) / 2
 
+        # Sắp xếp text trong cụm
         if is_vertical:
             cluster_blocks.sort(key=lambda b: (b['bbox']['x'], b['bbox']['y']))
         else:
             cluster_blocks.sort(key=lambda b: (b['bbox']['y'], b['bbox']['x']))
 
+        # Gộp text
         paragraph = ' '.join(b['text'] for b in cluster_blocks)
-        paragraphs.append(paragraph)
 
-    return paragraphs
+        # Tính bounding box bao toàn cụm
+        x_min = min(b['bbox']['x'] for b in cluster_blocks)
+        y_min = min(b['bbox']['y'] for b in cluster_blocks)
+        x_max = max(b['bbox']['x'] + b['bbox']['width'] for b in cluster_blocks)
+        y_max = max(b['bbox']['y'] + b['bbox']['height'] for b in cluster_blocks)
 
+        grouped.append({
+            'text': paragraph,
+            'bbox': {
+                'x': x_min,
+                'y': y_min,
+                'width': x_max - x_min,
+                'height': y_max - y_min
+            }
+        })
 
+    return grouped
 
 @app.post("/ocr-translate")
 async def ocr_translate(file: UploadFile = File(...)):
@@ -280,11 +307,15 @@ async def ocr_translate(file: UploadFile = File(...)):
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="File must be an image")
 
+        # ==== Đọc và chuyển ảnh ====
         image_data = await file.read()
         image = Image.open(io.BytesIO(image_data))
         if image.mode != "RGB":
             image = image.convert("RGB")
         cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+
+        # ==== Ghi nhận kích thước ảnh (dùng cho tính vị trí) ====
+        img_h, img_w = cv_image.shape[:2]
 
         logger.info("Starting OCR...")
         text_blocks = await asyncio.get_event_loop().run_in_executor(
@@ -296,13 +327,19 @@ async def ocr_translate(file: UploadFile = File(...)):
                 "success": False,
                 "message": "No text found in image",
                 "original": "",
-                "translated": ""
+                "translated": "",
+                "image_width": img_w,
+                "image_height": img_h
             })
 
+        # ==== Gom nhóm text thành cụm thoại ====
         paragraphs = group_text_blocks(text_blocks)
-        original_text = '\n'.join(paragraphs)
+
+        # Ghép text để dịch
+        original_text = '\n'.join(p['text'] for p in paragraphs)
         logger.info(f"Found {len(paragraphs)} text paragraphs")
 
+        # ==== Cache dịch ====
         cached = translation_cache.get(original_text)
         if cached:
             logger.info("Using cached translation")
@@ -310,21 +347,32 @@ async def ocr_translate(file: UploadFile = File(...)):
                 "success": True,
                 "original": original_text,
                 "translated": cached,
-                "text_blocks": text_blocks
+                "paragraphs": paragraphs,
+                "text_blocks": text_blocks,
+                "image_width": img_w,
+                "image_height": img_h
             })
 
+        # ==== Dịch văn bản ====
         logger.info("Starting translation...")
+        texts_to_translate = [p['text'] for p in paragraphs]
+
         translations = await asyncio.get_event_loop().run_in_executor(
-            executor, translation_model.translate_batch, paragraphs
+            executor, translation_model.translate_batch, texts_to_translate
         )
+
         translated_text = '\n'.join(translations)
         translation_cache.set(original_text, translated_text)
 
+        # ==== Trả kết quả ====
         return JSONResponse({
             "success": True,
             "original": original_text,
             "translated": translated_text,
-            "text_blocks": text_blocks
+            "paragraphs": paragraphs,
+            "text_blocks": text_blocks,
+            "image_width": img_w,
+            "image_height": img_h
         })
 
     except HTTPException:
@@ -332,6 +380,7 @@ async def ocr_translate(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Error in ocr_translate: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/health")
 async def health_check():

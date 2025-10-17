@@ -56,42 +56,56 @@ class OCRTranslator {
     }
 
     async captureFullScreen() {
-        try {
-            const response = await new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage({ action: 'captureFullPage' }, (res) => {
-                    if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-                    else resolve(res);
-                });
+    try {
+        const response = await new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ action: 'captureFullPage' }, (res) => {
+                if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+                else resolve(res);
             });
+        });
 
-            if (response.error) throw new Error(response.error);
+        if (response.error) throw new Error(response.error);
 
-            const img = new Image();
-            img.src = response.dataUrl;
-            await img.decode();
+        const img = new Image();
+        img.src = response.dataUrl;
+        await img.decode();
 
-            const canvas = document.createElement('canvas');
-            canvas.width = window.innerWidth * devicePixelRatio;
-            canvas.height = window.innerHeight * devicePixelRatio;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(img, 0, 0);
+        const canvas = document.createElement('canvas');
+        canvas.width = window.innerWidth * devicePixelRatio;
+        canvas.height = window.innerHeight * devicePixelRatio;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
 
-            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-            const result = await this.sendToBackend(blob);
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        const result = await this.sendToBackend(blob);
 
-            if (result.success) {
-                this.showResult(result.original, result.translated, 20, 20, 400, 200);
-            } else {
-                this.showError(result.message || 'Processing failed');
-            }
-        } catch (e) {
-            console.error(e);
-            this.showError(e.message);
-        } finally {
-            this.isProcessing = false;
-            this.hideInstruction();
+        // ==== Nếu backend trả về dữ liệu hợp lệ ====
+        if (result.success && result.paragraphs && result.paragraphs.length > 0) {
+            const main = result.paragraphs[0];
+            const { x, y, width, height } = main.bbox;
+            this.showResult(
+                result.original,
+                result.translated,
+                x,
+                y,
+                width,
+                height,
+                result.image_width,
+                result.image_height
+            );
+        } else {
+            // fallback nếu không có bbox
+            this.showResult(result.original, result.translated, 20, 20, 400, 200, window.innerWidth, window.innerHeight);
         }
+    } catch (e) {
+        console.error(e);
+        this.showError(e.message);
+    } finally {
+        this.isProcessing = false;
+        this.hideInstruction();
     }
+}
+
 
 
     stopSelection() {
@@ -227,11 +241,12 @@ class OCRTranslator {
             // Send to backend
             const result = await this.sendToBackend(blob);
             
-            if (result.success) {
-                this.showResult(result.original, result.translated, left, top, width, height);
-            } else {
-                this.showError(result.message || 'Failed to process image');
-            }
+           if (result.success) {
+              // Quyết định vị trí theo vùng chọn trên trang, không dùng bbox của OCR
+               this.showResult(result.original, result.translated, left, top, width, height);
+           } else {
+               this.showError(result.message || 'Failed to process image');
+           }
             
         } catch (error) {
             console.error('Capture error:', error);
@@ -303,100 +318,78 @@ class OCRTranslator {
         }
     }
 
-    showResult(original, translated, left, top, width, height) {
-            // Tìm thẻ <img> chứa vùng OCR
-            const allImages = Array.from(document.querySelectorAll('img'));
-            let targetImg = null;
-            for (const img of allImages) {
-                const rect = img.getBoundingClientRect();
-                if (
-                    left >= rect.left &&
-                    left + width <= rect.right &&
-                    top >= rect.top &&
-                    top + height <= rect.bottom
-                ) {
-                    targetImg = rect;
-                    break;
-                }
-            }
+    showResult(original, translated, left, top, width, height, imgW, imgH) {
+    this.removeResultOverlay();
 
-            // Nếu không tìm thấy ảnh, dùng toàn màn hình làm fallback
-            const imgRect = targetImg || { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+    const offset = 16;
+    const boxWidth = 360;
+    const boxHeight = 220;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
 
-        this.removeResultOverlay();
+    const textCenter = left + width / 2;
+    const preferRight = textCenter >= imgW / 2;
+    const boxLeft = preferRight ? vw - boxWidth - offset : offset;
 
-        const offset = 10;
-        const boxWidth = Math.max(300, width);
-        const boxHeight = 220;
-        const screenWidth = window.innerWidth;
-        const screenHeight = window.innerHeight;
+    const scaleY = vh / (imgH || vh);
+    const boxTop = Math.max(offset, Math.min(top * scaleY, vh - boxHeight - offset));
 
-        // Căn popup theo vị trí so với ảnh
-        const imageCenter = (imgRect.left + imgRect.right) / 2;
-        const textCenter = left + width / 2;
+    // ==== tạo popup ====
+    this.resultOverlay = document.createElement('div');
+    this.resultOverlay.id = 'ocr-translator-result';
+    this.resultOverlay.style.cssText = `
+        position: fixed;
+        left: ${boxLeft}px;
+        top: ${boxTop}px;
+        width: ${boxWidth}px;
+        background: white;
+        border: 2px solid #007cba;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 1000000;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        max-height: 300px;
+        overflow-y: auto;
+    `;
 
-        let boxLeft;
-        if (textCenter < imageCenter) {
-            // text ở nửa trái ảnh => popup ngoài rìa trái ảnh
-            boxLeft = Math.max(imgRect.left - boxWidth - offset, offset);
-        } else {
-            // text ở nửa phải ảnh => popup ngoài rìa phải ảnh
-            boxLeft = Math.min(imgRect.right + offset, screenWidth - boxWidth - offset);
-        }
-
-        // Đảm bảo không tràn màn hình theo chiều dọc
-        const boxTop = Math.max(offset, Math.min(top, screenHeight - boxHeight - offset));
-
-
-        this.resultOverlay = document.createElement('div');
-        this.resultOverlay.id = 'ocr-translator-result';
-        this.resultOverlay.style.cssText = `
-            position: fixed;
-            left: ${boxLeft}px;
-            top: ${boxTop}px;
-            max-width: ${Math.max(300, width)}px;
-            background: white;
-            border: 2px solid #007cba;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            z-index: 1000000;
-            font-family: Arial, sans-serif;
-            font-size: 14px;
-            max-height: 300px;
-            overflow-y: auto;
-        `;
-        
-        this.resultOverlay.innerHTML = `
-            <div style="padding: 12px; border-bottom: 1px solid #ddd; background: #f5f5f5; display: flex; justify-content: space-between; align-items: center;">
-                <strong>Translation Result</strong>
-                <button id="ocr-close-btn" style="background: #ff4444; color: white; border: none; border-radius: 4px; padding: 4px 8px; cursor: pointer;">×</button>
+    this.resultOverlay.innerHTML = `
+        <div style="padding:8px 12px;border-bottom:1px solid #ddd;background:#f5f5f5;
+                    display:flex;justify-content:space-between;align-items:center;">
+            <strong>Translation Result</strong>
+            <button id="ocr-close-btn" style="background:#ff4444;color:#fff;border:none;
+                    border-radius:4px;padding:2px 8px;cursor:pointer;">×</button>
+        </div>
+        <div style="padding:12px;">
+            <div style="margin-bottom:12px;">
+                <strong>Original:</strong>
+                <div style="background:#f9f9f9;padding:8px;border-radius:4px;
+                            margin-top:4px;white-space:pre-wrap;">${original}</div>
             </div>
-            <div style="padding: 12px;">
-                <div style="margin-bottom: 12px;">
-                    <strong style="color: #333;">Original:</strong>
-                    <div style="background: #f9f9f9; padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap;">${original}</div>
-                </div>
-                <div>
-                    <strong style="color: #007cba;">Vietnamese:</strong>
-                    <div style="background: #e3f2fd; padding: 8px; border-radius: 4px; margin-top: 4px; white-space: pre-wrap;">${translated}</div>
-                </div>
-                <div style="margin-top: 12px; text-align: center;">
-                    <button id="ocr-copy-btn" style="background: #007cba; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer; margin-right: 8px;">Copy Translation</button>
-                    <button id="ocr-copy-all-btn" style="background: #28a745; color: white; border: none; border-radius: 4px; padding: 6px 12px; cursor: pointer;">Copy Both</button>
-                </div>
+            <div>
+                <strong style="color:#007cba;">Vietnamese:</strong>
+                <div style="background:#e3f2fd;padding:8px;border-radius:4px;
+                            margin-top:4px;white-space:pre-wrap;">${translated}</div>
             </div>
-        `;
-        
-        document.body.appendChild(this.resultOverlay);
-        
-        // Add event listeners for buttons
-        document.getElementById('ocr-close-btn').onclick = () => this.removeResultOverlay();
-        document.getElementById('ocr-copy-btn').onclick = () => this.copyToClipboard(translated);
-        document.getElementById('ocr-copy-all-btn').onclick = () => this.copyToClipboard(`Original: ${original}\n\nTranslated: ${translated}`);
-        
-        // Auto close after 30 seconds
-        setTimeout(() => this.removeResultOverlay(), 30000);
-    }
+            <div style="margin-top:12px;text-align:center;">
+                <button id="ocr-copy-btn" style="background:#007cba;color:#fff;border:none;
+                        border-radius:4px;padding:6px 12px;cursor:pointer;margin-right:8px;">
+                        Copy Translation</button>
+                <button id="ocr-copy-all-btn" style="background:#28a745;color:#fff;border:none;
+                        border-radius:4px;padding:6px 12px;cursor:pointer;">Copy Both</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(this.resultOverlay);
+
+    // ==== gán sự kiện cho nút ====
+    document.getElementById('ocr-close-btn').onclick = () => this.removeResultOverlay();
+    document.getElementById('ocr-copy-btn').onclick = () => this.copyToClipboard(translated);
+    document.getElementById('ocr-copy-all-btn').onclick = () =>
+        this.copyToClipboard(`Original: ${original}\n\nTranslated: ${translated}`);
+
+    setTimeout(() => this.removeResultOverlay(), 30000);
+}
 
     showError(message) {
         this.showInstruction(`Error: ${message}`, 'error');
