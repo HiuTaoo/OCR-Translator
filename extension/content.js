@@ -1,4 +1,10 @@
 // Content script for OCR Translator Extension
+if (window.__OCR_TRANSLATOR_LOADED__) {
+    console.log("OCRTranslator already loaded, skipping duplicate injection");
+    throw new Error("OCRTranslator already loaded");
+}
+window.__OCR_TRANSLATOR_LOADED__ = true;
+
 class OCRTranslator {
     constructor() {
         this.isSelecting = false;
@@ -44,18 +50,47 @@ class OCRTranslator {
     }
 
     startSelection() {
-        if (this.isSelecting || this.isProcessing) return;
-        
-        this.isSelecting = true;
-        this.createOverlay();
+        if (this.isProcessing) return;
+        this.isProcessing = true;
+        this.captureFullScreen();
+    }
 
-        // Dùng hàm đã bind sẵn
-        document.addEventListener('mousedown', this.onMouseDown);
-        document.addEventListener('mousemove', this.onMouseMove);
-        document.addEventListener('mouseup', this.onMouseUp);
+    async captureFullScreen() {
+        try {
+            const response = await new Promise((resolve, reject) => {
+                chrome.runtime.sendMessage({ action: 'captureFullPage' }, (res) => {
+                    if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
+                    else resolve(res);
+                });
+            });
 
-        document.body.style.cursor = 'crosshair';
-        this.showInstruction('Click and drag to select an area');
+            if (response.error) throw new Error(response.error);
+
+            const img = new Image();
+            img.src = response.dataUrl;
+            await img.decode();
+
+            const canvas = document.createElement('canvas');
+            canvas.width = window.innerWidth * devicePixelRatio;
+            canvas.height = window.innerHeight * devicePixelRatio;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+
+            const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+            const result = await this.sendToBackend(blob);
+
+            if (result.success) {
+                this.showResult(result.original, result.translated, 20, 20, 400, 200);
+            } else {
+                this.showError(result.message || 'Processing failed');
+            }
+        } catch (e) {
+            console.error(e);
+            this.showError(e.message);
+        } finally {
+            this.isProcessing = false;
+            this.hideInstruction();
+        }
     }
 
 
@@ -383,5 +418,7 @@ if (document.readyState === 'loading') {
         new OCRTranslator();
     });
 } else {
-    new OCRTranslator();
+    if (!window.__OCR_INSTANCE__) {
+    window.__OCR_INSTANCE__ = new OCRTranslator();
+    }
 }

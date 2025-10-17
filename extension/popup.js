@@ -64,7 +64,7 @@
                         statusElement.className = 'status online';
                         statusText.textContent = `Backend online (${response.status.device})`;
                         startBtn.disabled = false;
-                        startBtn.textContent = 'Start Selection';
+                        startBtn.textContent = 'Translate Visible Area';
                     } else {
                         throw new Error(response.error);
                     }

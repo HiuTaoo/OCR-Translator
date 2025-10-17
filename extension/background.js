@@ -19,6 +19,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         checkBackendStatus(sendResponse);
         return true; // Keep message channel open for async response
     }
+    else if (request.action === 'captureFullPage') {
+        captureScreenshot(null, sendResponse); // không cần area
+        return true;
+    }
+
 });
 
 // Handle extension icon click
