@@ -121,12 +121,10 @@ class OCRTranslator {
         document.body.style.cursor = '';
         this.removeOverlay();
         this.hideInstruction();
-}
-
+    }
 
     createOverlay() {
         if (this.overlay) return;
-
         this.overlay = document.createElement('div');
         this.overlay.id = 'ocr-translator-overlay';
         this.overlay.style.cssText = `
@@ -203,13 +201,11 @@ class OCRTranslator {
         const width = Math.abs(this.endX - this.startX);
         const height = Math.abs(this.endY - this.startY);
 
-        // Minimum selection size
         if (width < 10 || height < 10) {
             this.stopSelection();
             return;
         }
 
-        // Capture the selected area
         this.captureSelection();
     }
 
@@ -225,25 +221,20 @@ class OCRTranslator {
         try {
             this.showInstruction('Processing image...');
 
-            // Calculate selection bounds relative to viewport
             const left = Math.min(this.startX, this.endX);
             const top = Math.min(this.startY, this.endY);
             const width = Math.abs(this.endX - this.startX);
             const height = Math.abs(this.endY - this.startY);
 
-            // Capture screenshot using Chrome API
             const canvas = await this.captureScreenshot(left, top, width, height);
 
-            // Convert to blob
             const blob = await new Promise(resolve => {
                 canvas.toBlob(resolve, 'image/png');
             });
 
-            // Send to backend
             const result = await this.sendToBackend(blob);
 
            if (result.success) {
-              // Quyết định vị trí theo vùng chọn trên trang, không dùng bbox của OCR
                this.showResult(result.original, result.translated, left, top, width, height);
            } else {
                this.showError(result.message || 'Failed to process image');
@@ -260,7 +251,6 @@ class OCRTranslator {
 
     async captureScreenshot(left, top, width, height) {
         return new Promise((resolve, reject) => {
-            // Send message to background script to capture screenshot
             chrome.runtime.sendMessage({
                 action: 'captureScreenshot',
                 area: { left, top, width, height }
@@ -270,7 +260,6 @@ class OCRTranslator {
                     return;
                 }
 
-                // Create canvas from dataURL
                 const img = new Image();
                 img.onload = () => {
                     const canvas = document.createElement('canvas');
@@ -278,7 +267,6 @@ class OCRTranslator {
                     canvas.height = height;
                     const ctx = canvas.getContext('2d');
 
-                    // Draw the cropped area
                     const scale = window.devicePixelRatio || 1;
                     ctx.drawImage(
                         img,
@@ -334,15 +322,16 @@ class OCRTranslator {
         const widthCss  = width  * scaleX;
         const heightCss = height * scaleY;
 
-        // Kiểm tra popup nên nằm bên trái hay phải vùng giữa
-        const isLeftSide = (leftCss + widthCss / 2) > vw / 2;
+        //const isLeftSide = (leftCss + widthCss / 2) > vw / 2;
+        const isLeftSide = (leftCss + widthCss / 2) < vw / 2;
 
-        // Lấy vị trí cuộn trang hiện tại
         const scrollX = window.scrollX;
         const scrollY = window.scrollY;
 
-        // Tính vị trí popup trong toàn trang (document)
-        const boxLeft = (isLeftSide ? margin : (vw - boxWidth - margin)) + scrollX;
+        //const boxLeft = (isLeftSide ? margin : (vw - boxWidth - margin)) + scrollX;
+        const boxLeft = isLeftSide
+            ? margin + scrollX
+            : vw - boxWidth - margin + scrollX;
         const boxTop = Math.min(Math.max(topCss, margin), vh - boxHeight - margin) + scrollY;
 
         const overlay = document.createElement('div');
@@ -417,7 +406,6 @@ class OCRTranslator {
 
         overlay.querySelector('.ocr-close-btn').onclick = () => overlay.remove();
 
-        // Xóa popup sau 30 giây
         setTimeout(() => overlay.remove(), 30000);
     }
 
