@@ -152,6 +152,21 @@
             font-size: 11px;
             color: #777;
         }
+
+        .lang-section {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 16px;
+            font-size: 13px;
+        }
+
+        .lang-section select {
+            padding: 4px 6px;
+            border-radius: 6px;
+            border: 1px solid #ccc;
+        }
+
     </style>
 </head>
 <body>
@@ -168,6 +183,25 @@
     <div id="toggle-extension" class="toggle-button">
         Enable Extension
     </div>
+    <div class="lang-section">
+        <label for="input-lang">Input language:</label>
+        <select id="input-lang">
+            <option value="en">English</option>
+            <option value="korean">Korean</option>
+            <option value="japan">Japanese</option>
+            <option value="ch">Chinese</option>
+        </select>
+
+        <label for="output-lang">Output language:</label>
+        <select id="output-lang">
+            <option value="vi">Vietnamese</option>
+            <option value="en">English</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
+        </select>
+    </div>
+
 
     <button id="start-btn" class="main-button" disabled>
         Translate Visible Area
@@ -177,7 +211,7 @@
         <h3>Shortcuts</h3>
         <div class="shortcut">
             <span>Quick Translate</span>
-            <span class="shortcut-key">Ctrl+Shift+X</span>
+            <span class="shortcut-key">Ctrl+Shift+S</span>
         </div>
     </div>
 </div>

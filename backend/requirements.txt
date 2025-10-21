@@ -21,3 +21,6 @@ aiofiles
 # Utils
 numpy
 scikit-learn
+langdetect
+
+

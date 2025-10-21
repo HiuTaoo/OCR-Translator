@@ -5,7 +5,8 @@ from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
@@ -37,6 +38,7 @@ CONFIG = {
     "ocr_gpu": torch.cuda.is_available(),
 }
 
+
 # =========================
 # Caching
 # =========================
@@ -58,103 +60,72 @@ class TranslationCache:
             del self.cache[oldest_key]
         self.cache[self._hash_text(text)] = translation
 
+
 # =========================
 # OCR
 # =========================
 class OCRProcessor:
     def __init__(self):
-        # PaddleOCR CPU mode, không dùng angle classifier
-        self.ocr = PaddleOCR(
-            lang="en",
-            use_textline_orientation=True,
-            det=True,
-            rec_batch_num=4,
-            use_gpu=CONFIG["ocr_gpu"],
-            rec=True,
-            cls=False
-        )
+        self.ocr_instances = {}
 
-    def extract_text(self, image: np.ndarray) -> List[Dict]:
-        """Extract text from image using PaddleOCR, safe for CPU mode"""
+    def get_ocr(self, lang: str):
+        """Khởi tạo OCR cho ngôn ngữ cụ thể nếu chưa có"""
+        supported = {"en", "ch", "chinese_cht", "japan", "korean", "en+ch", "korean+english"}
+        if lang not in supported:
+            logger.warning(f"Unsupported OCR language '{lang}', falling back to English.")
+            lang = "en"
+
+        if lang not in self.ocr_instances:
+            logger.info(f"Loading PaddleOCR model for: {lang}")
+            self.ocr_instances[lang] = PaddleOCR(
+                lang=lang,
+                use_textline_orientation=True,
+                det=True,
+                rec=True,
+                cls=False,
+                use_gpu=CONFIG["ocr_gpu"],
+                rec_batch_num=4
+            )
+        return self.ocr_instances[lang]
+
+    def extract_text(self, image: np.ndarray, lang: str) -> List[Dict]:
+        """OCR cố định theo ngôn ngữ truyền vào"""
         try:
-            # Validate ảnh
-            h, w = image.shape[:2]
-            if h < 10 or w < 10:
-                logger.warning(f"Skip OCR: image too small ({w}x{h})")
-                return []
-
-            # Resize nếu quá nhỏ
-            min_size = 32
-            if h < min_size or w < min_size:
-                scale = max(min_size / h, min_size / w)
-                new_h, new_w = int(h * scale), int(w * scale)
-                image = cv2.resize(image, (new_w, new_h))
-                logger.debug(f"Resized tiny image to ({new_w}x{new_h})")
-
-            # Gọi OCR
-            results = self.ocr.ocr(image)
-
-            text_blocks: List[Dict] = []
-            if results:
-                # PaddleOCR thường trả về [ [ (coords, (text, conf)), ... ] ]
-                page_results = results[0] if isinstance(results[0], list) else results
-
-                for i, line in enumerate(page_results):
-                    try:
-                        if not line or len(line) < 2:
-                            continue
-                        coords, text_info = line[0], line[1]
-
-                        # Lấy text + confidence
-                        if isinstance(text_info, (list, tuple)) and len(text_info) >= 2:
-                            text, confidence = str(text_info[0]).strip(), float(text_info[1])
-                        else:
-                            text, confidence = str(text_info).strip(), 1.0
-
-                        if not text or confidence < 0.3:
-                            continue
-
-                        # Tính bbox an toàn
-                        bbox = {'x': 0, 'y': 0, 'width': w, 'height': h}
-                        if coords and isinstance(coords, (list, tuple)) and len(coords) >= 4:
-                            xs = [float(c[0]) for c in coords if len(c) >= 2]
-                            ys = [float(c[1]) for c in coords if len(c) >= 2]
-                            if xs and ys:
-                                bbox = {
-                                    'x': min(xs),
-                                    'y': min(ys),
-                                    'width': max(xs) - min(xs),
-                                    'height': max(ys) - min(ys)
-                                }
-
-                        text_blocks.append({
-                            'text': text,
-                            'confidence': confidence,
-                            'bbox': bbox
-                        })
-
-                    except Exception as e:
-                        logger.warning(f"Error parsing line {i}: {e}")
-                        continue
-
-            if text_blocks:
-                text_blocks.sort(key=lambda x: (x['bbox']['y'], x['bbox']['x']))
-            logger.info(f"OCR extracted {len(text_blocks)} text blocks")
+            ocr = self.get_ocr(lang)
+            results = ocr.ocr(image)
+            text_blocks = self._parse_ocr_results(results, image)
+            logger.info(f"OCR extracted {len(text_blocks)} text blocks ({lang})")
             return text_blocks
-
         except Exception as e:
-            logger.error(f"PaddleOCR Error: {str(e)}", exc_info=True)
-            import paddleocr
-            return [{
-                'text': f"OCR Error: {str(e)}",
-                'confidence': 0.0,
-                'bbox': {'x': 0, 'y': 0, 'width': 300, 'height': 50},
-                'debug': {
-                    'error_type': type(e).__name__,
-                    'paddleocr_version': getattr(paddleocr, '__version__', 'unknown'),
-                    'image_shape': image.shape if hasattr(image, 'shape') else 'unknown'
-                }
-            }]
+            logger.error(f"OCR error ({lang}): {str(e)}", exc_info=True)
+            return []
+
+    def _parse_ocr_results(self, results, image: np.ndarray) -> List[Dict]:
+        h, w = image.shape[:2]
+        text_blocks = []
+        if results:
+            page_results = results[0] if isinstance(results[0], list) else results
+            for line in page_results:
+                try:
+                    coords, text_info = line[0], line[1]
+                    if isinstance(text_info, (list, tuple)) and len(text_info) >= 2:
+                        text, conf = str(text_info[0]).strip(), float(text_info[1])
+                    else:
+                        text, conf = str(text_info).strip(), 1.0
+                    if not text or conf < 0.3:
+                        continue
+                    xs = [float(c[0]) for c in coords]
+                    ys = [float(c[1]) for c in coords]
+                    bbox = {
+                        'x': min(xs),
+                        'y': min(ys),
+                        'width': max(xs) - min(xs),
+                        'height': max(ys) - min(ys)
+                    }
+                    text_blocks.append({'text': text, 'confidence': conf, 'bbox': bbox})
+                except Exception:
+                    continue
+        return text_blocks
 
 
 # =========================
@@ -168,7 +139,11 @@ class TranslationModel:
         self.model = M2M100ForConditionalGeneration.from_pretrained(model_name)
 
         if device == "cuda":
-            self.model = self.model.to(device).half()
+            try:
+                self.model = self.model.to(device).half()
+            except Exception:
+                self.model = self.model.to(device)
+
         self.model.eval()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -184,7 +159,6 @@ class TranslationModel:
             encoded = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=512)
 
             if self.device == "cuda":
-                # move to GPU nhưng chỉ half các tensor float
                 for k, v in encoded.items():
                     if torch.is_floating_point(v):
                         encoded[k] = v.to(self.device).half()
@@ -208,6 +182,7 @@ class TranslationModel:
             logger.error(f"Translation error: {str(e)}")
             return ["Translation failed"] * len(texts)
 
+
 # =========================
 # Globals
 # =========================
@@ -229,6 +204,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 async def startup_event():
     global translation_model
@@ -236,11 +212,13 @@ async def startup_event():
     translation_model = TranslationModel(CONFIG["model_name"], CONFIG["device"])
     logger.info("API ready")
 
+
 @app.on_event("shutdown")
 async def shutdown_event():
     executor.shutdown(wait=True)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+
 
 def group_text_blocks(text_blocks: List[Dict], max_distance: int = 120) -> List[Dict]:
     """
@@ -259,7 +237,6 @@ def group_text_blocks(text_blocks: List[Dict], max_distance: int = 120) -> List[
         for b in text_blocks
     ])
 
-    # Gom nhóm theo khoảng cách (DBSCAN)
     clustering = DBSCAN(eps=max_distance, min_samples=1).fit(centers)
     labels = clustering.labels_
 
@@ -302,8 +279,13 @@ def group_text_blocks(text_blocks: List[Dict], max_distance: int = 120) -> List[
 
     return grouped
 
+
 @app.post("/ocr-translate")
-async def ocr_translate(file: UploadFile = File(...)):
+async def ocr_translate(
+        file: UploadFile = File(...),
+        input_lang: str = Form("en"),
+        output_lang: str = Form("vi")
+):
     try:
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="File must be an image")
@@ -315,12 +297,12 @@ async def ocr_translate(file: UploadFile = File(...)):
             image = image.convert("RGB")
         cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
-        # ==== Ghi nhận kích thước ảnh (dùng cho tính vị trí) ====
         img_h, img_w = cv_image.shape[:2]
 
-        logger.info("Starting OCR...")
+        # ==== OCR ====
+        logger.info(f"Starting OCR with language model: {input_lang}")
         text_blocks = await asyncio.get_event_loop().run_in_executor(
-            executor, ocr_processor.extract_text, cv_image
+            executor, ocr_processor.extract_text, cv_image, input_lang
         )
 
         if not text_blocks:
@@ -335,12 +317,10 @@ async def ocr_translate(file: UploadFile = File(...)):
 
         # ==== Gom nhóm text thành cụm thoại ====
         paragraphs = group_text_blocks(text_blocks)
-
-        # Ghép text để dịch
         original_text = '\n'.join(p['text'] for p in paragraphs)
         logger.info(f"Found {len(paragraphs)} text paragraphs")
 
-        # ==== Cache dịch ====
+        # ==== Kiểm tra cache ====
         cached = translation_cache.get(original_text)
         if cached:
             logger.info("Using cached translation")
@@ -355,17 +335,34 @@ async def ocr_translate(file: UploadFile = File(...)):
             })
 
         # ==== Dịch văn bản ====
-        logger.info("Starting translation...")
+        logger.info(f"Starting translation from {input_lang} to {output_lang}")
         texts_to_translate = [p['text'] for p in paragraphs]
 
+        lang_map = {
+            "en": "en",
+            "ch": "zh",
+            "zh": "zh",
+            "japan": "ja",
+            "ja": "ja",
+            "korean": "ko",
+            "ko": "ko",
+            "vi": "vi"
+        }
+
+        src_lang = lang_map.get(input_lang, "en")
+        tgt_lang = lang_map.get(output_lang, "vi")
+
         translations = await asyncio.get_event_loop().run_in_executor(
-            executor, translation_model.translate_batch, texts_to_translate
+            executor,
+            translation_model.translate_batch,
+            texts_to_translate,
+            src_lang,
+            tgt_lang
         )
 
         translated_text = '\n'.join(translations)
         translation_cache.set(original_text, translated_text)
 
-        # ==== Trả kết quả ====
         return JSONResponse({
             "success": True,
             "original": original_text,
@@ -392,10 +389,12 @@ async def health_check():
         "cache_size": len(translation_cache.cache)
     }
 
+
 @app.post("/clear-cache")
 async def clear_cache():
     translation_cache.cache.clear()
     return {"message": "Cache cleared successfully"}
+
 
 if __name__ == "__main__":
     uvicorn.run(
@@ -405,5 +404,3 @@ if __name__ == "__main__":
         reload=False,
         access_log=True
     )
-
-

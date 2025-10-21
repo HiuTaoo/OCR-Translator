@@ -98,10 +98,15 @@ class OCRTranslator {
         formData.append('file', blob, 'screenshot.png');
 
         try {
+            const {inputLang, outputLang} = await chrome.storage.local.get(['inputLang', 'outputLang']);
+            formData.append('input_lang', inputLang || 'en');
+            formData.append('output_lang', outputLang || 'vi');
+
             const response = await fetch('http://127.0.0.1:8000/ocr-translate', {
                 method: 'POST',
                 body: formData
             });
+
             if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             return await response.json();
         } catch (error) {
