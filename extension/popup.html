@@ -1,271 +1,191 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
+    <title>OCR Translator</title>
     <style>
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            width: 320px;
-            min-height: 400px;
+            width: 340px;
+            min-height: 360px;
             margin: 0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
+            background: #f7f8fa;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
         .header {
-            background: linear-gradient(135deg, #007cba, #0056b3);
+            width: 100%;
+            background: linear-gradient(135deg, #007cba, #004a91);
             color: white;
-            padding: 16px;
+            padding: 20px 0;
             text-align: center;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         }
 
         .header h1 {
             margin: 0;
-            font-size: 18px;
+            font-size: 20px;
             font-weight: 600;
         }
 
-        .header p {
-            margin: 8px 0 0 0;
-            font-size: 12px;
-            opacity: 0.9;
-        }
-
         .content {
-            padding: 16px;
+            width: 100%;
+            padding: 20px 20px 10px 20px; /* ✅ thêm padding ngang đều */
         }
 
         .status {
             display: flex;
             align-items: center;
-            padding: 12px;
-            margin-bottom: 16px;
+            justify-content: center;
+            gap: 8px;
+            padding: 10px;
             border-radius: 8px;
             font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            text-align: center;
         }
 
         .status.online {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
+            background: #e8f9ee;
+            color: #0b7b38;
+            border: 1px solid #b8e6c1;
         }
 
         .status.offline {
-            background: #f8d7da;
-            color: #721c24;
+            background: #ffecec;
+            color: #9a1a1a;
             border: 1px solid #f1b0b7;
         }
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            margin-right: 8px;
+        .toggle-button {
+            display: block;
+            width: 100%;
+            padding: 16px 0;
+            font-size: 16px;
+            font-weight: 600;
+            text-align: center;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: 0.25s;
+            background: #e4e4e4;
+            color: #333;
+            border: 2px solid #ccc;
+            margin-bottom: 18px;
         }
 
-        .status.online .status-dot {
-            background: #28a745;
+        .toggle-button.active {
+            background: linear-gradient(135deg, #007cba, #0056b3);
+            color: white;
+            border: none;
+            box-shadow: 0 3px 10px rgba(0, 124, 186, 0.3);
         }
 
-        .status.offline .status-dot {
-            background: #dc3545;
+        .toggle-button:hover {
+            transform: translateY(-1px);
         }
 
         .main-button {
             width: 100%;
-            padding: 16px;
-            background: linear-gradient(135deg, #007cba, #0056b3);
+            padding: 14px 0;
+            background: #007cba;
             color: white;
             border: none;
             border-radius: 8px;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s;
-            margin-bottom: 16px;
+            transition: 0.2s;
         }
 
         .main-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0, 124, 186, 0.3);
-        }
-
-        .main-button:active {
-            transform: translateY(0);
+            background: #005fa3;
+            transform: translateY(-1px);
         }
 
         .main-button:disabled {
-            background: #6c757d;
+            background: #a0a0a0;
             cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
         }
 
         .shortcuts {
+            width: 100%;
             background: white;
             border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 16px;
             border: 1px solid #dee2e6;
+            padding: 14px 16px; /* ✅ thêm padding đều */
+            margin-top: 18px;
+            box-sizing: border-box;
         }
 
         .shortcuts h3 {
-            margin: 0 0 12px 0;
+            margin: 0 0 10px 0;
             font-size: 14px;
-            color: #495057;
+            color: #444;
         }
 
         .shortcut {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
             font-size: 12px;
-        }
-
-        .shortcut:last-child {
-            margin-bottom: 0;
+            color: #555;
         }
 
         .shortcut-key {
             background: #e9ecef;
-            padding: 4px 8px;
+            padding: 3px 8px;
             border-radius: 4px;
             font-family: monospace;
             font-size: 11px;
         }
 
-        .settings {
-            background: white;
-            border-radius: 8px;
-            padding: 16px;
-            border: 1px solid #dee2e6;
-        }
-
-        .settings h3 {
-            margin: 0 0 12px 0;
-            font-size: 14px;
-            color: #495057;
-        }
-
-        .setting-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
-        .setting-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .setting-label {
-            font-size: 12px;
-            color: #6c757d;
-        }
-
-        .toggle {
-            position: relative;
-            width: 44px;
-            height: 24px;
-            background: #ccc;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .toggle.active {
-            background: #007cba;
-        }
-
-        .toggle::before {
-            content: '';
-            position: absolute;
-            top: 2px;
-            left: 2px;
-            width: 20px;
-            height: 20px;
-            background: white;
-            border-radius: 50%;
-            transition: transform 0.2s;
-        }
-
-        .toggle.active::before {
-            transform: translateX(20px);
-        }
-
         .footer {
+            width: 100%;
             text-align: center;
-            padding: 16px;
+            padding: 16px 20px; /* ✅ thêm padding để không dính viền */
             font-size: 11px;
-            color: #6c757d;
-        }
-
-        .loading {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 2px solid #f3f3f3;
-            border-top: 2px solid #007cba;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-            margin-right: 8px;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            color: #777;
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>OCR Translator</h1>
-        <p>Select and translate image text</p>
+
+<div class="header">
+    <h1>OCR Translator</h1>
+</div>
+
+<div class="content">
+    <div id="status" class="status offline">
+        <span id="status-text">Checking backend...</span>
     </div>
 
-    <div class="content">
-        <div id="status" class="status offline">
-            <div class="status-dot"></div>
-            <span id="status-text">Checking backend...</span>
-        </div>
-
-        <button id="start-btn" class="main-button" disabled>
-            Start Selection
-        </button>
-
-        <div class="shortcuts">
-            <h3>Shortcuts</h3>
-            <div class="shortcut">
-                <span>Start selection</span>
-                <span class="shortcut-key">Ctrl+Shift+X</span>
-            </div>
-            <div class="shortcut">
-                <span>Cancel selection</span>
-                <span class="shortcut-key">Escape</span>
-            </div>
-            <div class="shortcut">
-                <span>Copy result</span>
-                <span class="shortcut-key">Click buttons</span>
-            </div>
-        </div>
-
-        <div class="settings">
-            <h3>Settings</h3>
-            <div class="setting-item">
-                <span class="setting-label">Auto-close result</span>
-                <div id="toggle-autoclose" class="toggle active"></div>
-            </div>
-            <div class="setting-item">
-                <span class="setting-label">Show original text</span>
-                <div id="toggle-original" class="toggle active"></div>
-            </div>
-        </div>
+    <div id="toggle-extension" class="toggle-button">
+        Enable Extension
     </div>
 
-    <div class="footer">
-        Made with ❤️ for manga/comic readerss
-    </div>
+    <button id="start-btn" class="main-button" disabled>
+        Translate Visible Area
+    </button>
 
-    <script src="popup.js"></script>
+    <div class="shortcuts">
+        <h3>Shortcuts</h3>
+        <div class="shortcut">
+            <span>Quick Translate</span>
+            <span class="shortcut-key">Ctrl+Shift+X</span>
+        </div>
+    </div>
+</div>
+
+<div class="footer">
+    Made with ❤️ for manga readers
+</div>
+
+<script src="popup.js"></script>
 </body>
 </html>

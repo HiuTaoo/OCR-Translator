@@ -14,7 +14,7 @@ class OCRTranslator {
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (request.action === 'startSelection') {
                 this.startSelection();
-                sendResponse({ success: true });
+                sendResponse({success: true});
             }
         });
 
@@ -28,15 +28,31 @@ class OCRTranslator {
 
     async startSelection() {
         if (this.isProcessing) return;
+
+        if (!(await this.isExtensionEnabled())) {
+            console.warn('Extension is disabled — OCR blocked');
+            this.showInstruction('Extension is OFF — cannot OCR.', 'error');
+            return;
+        }
+
         this.isProcessing = true;
         await this.captureFullScreen();
         this.isProcessing = false;
     }
 
+    async isExtensionEnabled() {
+        return new Promise((resolve) => {
+            chrome.storage.local.get(['extensionEnabled'], (res) => {
+                resolve(res.extensionEnabled === true);
+            });
+        });
+    }
+
+
     async captureFullScreen() {
         try {
             const response = await new Promise((resolve, reject) => {
-                chrome.runtime.sendMessage({ action: 'captureFullPage' }, (res) => {
+                chrome.runtime.sendMessage({action: 'captureFullPage'}, (res) => {
                     if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
                     else resolve(res);
                 });
@@ -62,11 +78,11 @@ class OCRTranslator {
                 result.paragraphs.forEach((p, i) => {
                     const text = p.text || '';
                     const translated = translations[i] || '';
-                    const { x, y, width, height } = p.bbox;
+                    const {x, y, width, height} = p.bbox;
                     this.showResult(text, translated, x, y, width, height, result.image_width, result.image_height);
                 });
             } else {
-                this.showResult(result.original, result.translated, 20, 20, 400, 200, window.innerWidth, window.innerHeight);
+                console.log('No OCR text detected — skip popup');
             }
         } catch (e) {
             console.error(e);
@@ -75,6 +91,7 @@ class OCRTranslator {
             this.hideInstruction();
         }
     }
+
 
     async sendToBackend(blob) {
         const formData = new FormData();
@@ -89,9 +106,10 @@ class OCRTranslator {
             return await response.json();
         } catch (error) {
             console.error('Backend error:', error);
-            return { success: false, message: 'Backend connection failed: ' + error.message };
+            return {success: false, message: 'Backend connection failed: ' + error.message};
         }
     }
+
     getScrollableParent(el = document.body) {
         let node = el;
         while (node && node !== document) {
@@ -108,14 +126,16 @@ class OCRTranslator {
     showResult(original, translated, left, top, width, height, imgW, imgH, id = Date.now() + Math.random()) {
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-        const boxWidth = 360;
         const boxHeight = 220;
         const margin = 8;
-        const rightPadding = 20;
+
+        const leftZone = document.querySelector('body > div[style*="left: 0px"]');
+        const rightZone = document.querySelector('body > div[style*="right: 0px"]');
+        const leftZoneWidth = leftZone ? leftZone.offsetWidth : 200;
+        const rightZoneWidth = rightZone ? rightZone.offsetWidth : 200;
 
         const scaleX = vw / imgW;
         const scaleY = vh / imgH;
-
         const leftCss = left * scaleX;
         const topCss = top * scaleY;
         const widthCss = width * scaleX;
@@ -123,17 +143,19 @@ class OCRTranslator {
 
         const isLeftSide = (leftCss + widthCss / 2) < vw / 2;
 
-        //const scrollContainer = document.scrollingElement || document.documentElement;
         const scrollContainer = this.getScrollableParent(document.body);
-
         const scrollX = scrollContainer.scrollLeft;
         const scrollY = scrollContainer.scrollTop;
 
+        const zone = isLeftSide ? leftZone : rightZone;
+        const zoneWidth = isLeftSide ? leftZoneWidth : rightZoneWidth;
+
         const boxLeft = isLeftSide
-            ? margin + scrollX
-            : vw - boxWidth - rightPadding + scrollX;
+            ? scrollX + margin
+            : vw - zoneWidth + scrollX + margin;
 
         const boxTop = Math.min(Math.max(topCss, margin), vh - boxHeight - margin) + scrollY;
+        const boxWidth = zoneWidth - 2 * margin;
 
         const overlay = document.createElement('div');
         overlay.id = `ocr-translator-result-${id}`;
@@ -142,66 +164,66 @@ class OCRTranslator {
             left: ${boxLeft}px;
             top: ${boxTop}px;
             width: ${boxWidth}px;
-            background: rgba(255,255,255,0.9);
-            color: #111;
-            border: 1px solid rgba(0,0,0,0.2);
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            max-width: ${boxWidth}px;
+            background: #ffffff;      
+            color: #000000;              
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
             z-index: 1000000;
             font-family: Arial, sans-serif;
-            font-size: 14px;
+            font-size: 16px;
             max-height: 300px;
-            overflow-y: auto;
-            backdrop-filter: blur(4px);
+            overflow: hidden;
+            padding: 10px;
+            line-height: 1.5;
+            transition: background 0.2s, color 0.2s, width 0.2s;
+            cursor: default;
+            user-select: text;
+            box-sizing: border-box;
         `;
 
         overlay.innerHTML = `
-            <div style="
-                display:flex;
-                align-items:center;
-                justify-content:space-between;
-                padding:6px 10px;
-                border-bottom:1px solid rgba(0,0,0,0.15);
-                background:rgba(0,0,0,0.05);
-                border-radius:8px 8px 0 0;
-            ">
-                <button class="ocr-close-btn" style="
-                    background:#ff4444;
-                    color:#fff;
-                    border:none;
-                    border-radius:4px;
-                    padding:2px 8px;
-                    cursor:pointer;
-                    font-weight:bold;
-                    font-size:14px;
-                    line-height:1;
-                ">×</button>
-            </div>
-            <div style="padding:8px;">
-                <div style="margin-bottom:6px;">
-                    <div style="
-                        background:rgba(240,240,240,0.9);
-                        padding:8px;
-                        border-radius:4px;
-                        white-space:pre-wrap;
-                    ">${original}</div>
-                </div>
-                <div>
-                    <div style="
-                        background:rgba(200,230,255,0.9);
-                        padding:8px;
-                        border-radius:4px;
-                        white-space:pre-wrap;
-                    ">${translated}</div>
-                </div>
-            </div>
+            <div class="ocr-text" style="
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                color: #000;
+                text-align: center;
+            ">${translated}</div>
         `;
+        overlay.addEventListener('mouseenter', () => {
+            overlay.querySelector('.ocr-text').textContent = original;
+            overlay.style.background = '#f0f0f0';
+            overlay.style.color = '#333';
+        });
+        overlay.addEventListener('mouseleave', () => {
+            overlay.querySelector('.ocr-text').textContent = translated;
+            overlay.style.background = '#ffffff';
+            overlay.style.color = '#000000';
+        });
+
 
         scrollContainer.appendChild(overlay);
-        overlay.querySelector('.ocr-close-btn').onclick = () => overlay.remove();
-        setTimeout(() => overlay.remove(), 30000);
-    }
 
+        // ✅ Theo dõi khi side zone thay đổi kích thước
+        if (zone) {
+            const observer = new ResizeObserver(() => {
+                const newWidth = zone.offsetWidth - 2 * margin;
+                overlay.style.width = `${newWidth}px`;
+                overlay.style.maxWidth = `${newWidth}px`;
+                if (!isLeftSide) {
+                    overlay.style.left = `${vw - zone.offsetWidth + scrollX + margin}px`;
+                }
+            });
+            observer.observe(zone);
+            overlay._observer = observer;
+        }
+
+        overlay.addEventListener('click', () => {
+            overlay._observer?.disconnect();
+            overlay.remove();
+        });
+    }
 
     showError(message) {
         this.showInstruction(`Error: ${message}`, 'error');
@@ -228,6 +250,11 @@ class OCRTranslator {
         `;
         instruction.textContent = text;
         document.body.appendChild(instruction);
+
+        setTimeout(() => {
+            instruction.style.opacity = '0';
+            setTimeout(() => instruction.remove(), 400);
+        }, 2500);
     }
 
     hideInstruction() {
@@ -241,3 +268,100 @@ if (document.readyState === 'loading') {
 } else {
     if (!window.__OCR_INSTANCE__) window.__OCR_INSTANCE__ = new OCRTranslator();
 }
+
+// ==========================
+// Adjustable side zones
+// ==========================
+
+(function handleSideZones() {
+    let leftZone = null, rightZone = null;
+    let widths = {left: 200, right: 200};
+    let enabled = false;
+
+    chrome.runtime.onMessage.addListener((req) => {
+        if (req.action === 'applyExtensionState') {
+            enabled = req.enabled;
+            if (enabled) createZones();
+            else removeZones();
+        }
+    });
+
+    function createZones() {
+        removeZones();
+        leftZone = makeZone('left', widths.left);
+        rightZone = makeZone('right', widths.right);
+        document.body.append(leftZone, rightZone);
+        makeResizable(leftZone, 'left');
+        makeResizable(rightZone, 'right');
+        updateColor();
+    }
+
+    function removeZones() {
+        leftZone?.remove();
+        rightZone?.remove();
+        leftZone = rightZone = null;
+
+        const existingPopups = document.querySelectorAll('[id^="ocr-translator-result-"]');
+        existingPopups.forEach(el => el.remove());
+    }
+
+    function makeZone(side, width) {
+        const zone = document.createElement('div');
+        Object.assign(zone.style, {
+            position: 'fixed',
+            top: '0',
+            bottom: '0',
+            width: width + 'px',
+            [side]: '0',
+            zIndex: '999999',
+            cursor: 'ew-resize',
+            background: '#333333'
+        });
+        return zone;
+    }
+
+    function makeResizable(zone, side) {
+        const resizer = document.createElement('div');
+        Object.assign(resizer.style, {
+            position: 'absolute',
+            top: '0',
+            bottom: '0',
+            width: '6px',
+            background: 'rgba(255,0,0,0.47)',
+            cursor: 'col-resize',
+            [side === 'left' ? 'right' : 'left']: '0'
+        });
+        zone.appendChild(resizer);
+
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            document.body.style.cursor = 'col-resize';
+            const startX = e.clientX;
+            const startWidth = zone.offsetWidth;
+
+            const move = (ev) => {
+                const delta = ev.clientX - startX;
+                const newWidth = side === 'left'
+                    ? Math.max(50, startWidth + delta)
+                    : Math.max(50, startWidth - delta);
+                zone.style.width = newWidth + 'px';
+                widths[side] = newWidth;
+            };
+            const up = () => {
+                document.body.style.cursor = 'default';
+                document.removeEventListener('mousemove', move);
+                document.removeEventListener('mouseup', up);
+            };
+            document.addEventListener('mousemove', move);
+            document.addEventListener('mouseup', up);
+        });
+    }
+
+    function updateColor() {
+        const color = enabled ? '#333333' : 'transparent';
+        if (leftZone) leftZone.style.background = color;
+        if (rightZone) rightZone.style.background = color;
+    }
+})();
+
+
