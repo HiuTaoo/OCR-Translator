@@ -33,11 +33,9 @@ CONFIG = {
     "model_name": "facebook/m2m100_418M",
     "cache_size": 1000,
     "max_workers": 2,
-    "device": "cpu",      # ép CPU
-    "ocr_gpu": False,     # tắt GPU cho OCR
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "ocr_gpu": torch.cuda.is_available(),
 }
-
-
 
 # =========================
 # Caching
@@ -70,6 +68,8 @@ class OCRProcessor:
             lang="en",
             use_textline_orientation=True,
             det=True,
+            rec_batch_num=4,
+            use_gpu=CONFIG["ocr_gpu"],
             rec=True,
             cls=False
         )
@@ -168,7 +168,7 @@ class TranslationModel:
         self.model = M2M100ForConditionalGeneration.from_pretrained(model_name)
 
         if device == "cuda":
-            self.model = self.model.to(device)
+            self.model = self.model.to(device).half()
         self.model.eval()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -178,11 +178,18 @@ class TranslationModel:
     def translate_batch(self, texts: List[str], src_lang: str = "en", tgt_lang: str = "vi") -> List[str]:
         if not texts:
             return []
+
         try:
             self.tokenizer.src_lang = src_lang
             encoded = self.tokenizer(texts, return_tensors="pt", padding=True, truncation=True, max_length=512)
+
             if self.device == "cuda":
-                encoded = {k: v.to(self.device) for k, v in encoded.items()}
+                # move to GPU nhưng chỉ half các tensor float
+                for k, v in encoded.items():
+                    if torch.is_floating_point(v):
+                        encoded[k] = v.to(self.device).half()
+                    else:
+                        encoded[k] = v.to(self.device)
 
             with torch.no_grad():
                 generated_tokens = self.model.generate(
@@ -398,3 +405,5 @@ if __name__ == "__main__":
         reload=False,
         access_log=True
     )
+
+
