@@ -11,7 +11,6 @@ class OCRTranslator {
     }
 
     init() {
-        // Nhận lệnh từ popup hoặc phím tắt
         chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (request.action === 'startSelection') {
                 this.startSelection();
@@ -93,6 +92,18 @@ class OCRTranslator {
             return { success: false, message: 'Backend connection failed: ' + error.message };
         }
     }
+    getScrollableParent(el = document.body) {
+        let node = el;
+        while (node && node !== document) {
+            const style = getComputedStyle(node);
+            const overflowY = style.overflowY;
+            if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+                return node;
+            }
+            node = node.parentNode;
+        }
+        return document.scrollingElement || document.documentElement;
+    }
 
     showResult(original, translated, left, top, width, height, imgW, imgH, id = Date.now() + Math.random()) {
         const vw = window.innerWidth;
@@ -100,6 +111,7 @@ class OCRTranslator {
         const boxWidth = 360;
         const boxHeight = 220;
         const margin = 8;
+        const rightPadding = 20;
 
         const scaleX = vw / imgW;
         const scaleY = vh / imgH;
@@ -111,13 +123,16 @@ class OCRTranslator {
 
         const isLeftSide = (leftCss + widthCss / 2) < vw / 2;
 
-        const scrollContainer = document.scrollingElement || document.documentElement;
+        //const scrollContainer = document.scrollingElement || document.documentElement;
+        const scrollContainer = this.getScrollableParent(document.body);
+
         const scrollX = scrollContainer.scrollLeft;
         const scrollY = scrollContainer.scrollTop;
 
         const boxLeft = isLeftSide
             ? margin + scrollX
-            : vw - boxWidth - margin + scrollX;
+            : vw - boxWidth - rightPadding + scrollX;
+
         const boxTop = Math.min(Math.max(topCss, margin), vh - boxHeight - margin) + scrollY;
 
         const overlay = document.createElement('div');
@@ -186,6 +201,7 @@ class OCRTranslator {
         overlay.querySelector('.ocr-close-btn').onclick = () => overlay.remove();
         setTimeout(() => overlay.remove(), 30000);
     }
+
 
     showError(message) {
         this.showInstruction(`Error: ${message}`, 'error');

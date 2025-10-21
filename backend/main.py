@@ -1,6 +1,4 @@
-import os
 import io
-import json
 import hashlib
 import asyncio
 from typing import Dict, List, Optional
@@ -15,9 +13,11 @@ import uvicorn
 import torch
 from transformers import M2M100ForConditionalGeneration, M2M100Tokenizer
 from PIL import Image
-import numpy as np
 from paddleocr import PaddleOCR
 import cv2
+
+from sklearn.cluster import DBSCAN
+import numpy as np
 
 # =========================
 # Logging
@@ -71,7 +71,7 @@ class OCRProcessor:
             use_textline_orientation=True,
             det=True,
             rec=True,
-            cls=False  # tắt angle classifier để tránh warning
+            cls=False
         )
 
     def extract_text(self, image: np.ndarray) -> List[Dict]:
@@ -234,12 +234,6 @@ async def shutdown_event():
     executor.shutdown(wait=True)
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
-
-from sklearn.cluster import DBSCAN
-import numpy as np
-
-from sklearn.cluster import DBSCAN
-import numpy as np
 
 def group_text_blocks(text_blocks: List[Dict], max_distance: int = 120) -> List[Dict]:
     """
